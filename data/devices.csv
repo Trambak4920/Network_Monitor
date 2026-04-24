@@ -1,0 +1,26 @@
+ip,device_type,location
+192.168.1.10,switch,Building A
+192.168.1.11,cctv,Entrance Gate
+192.168.1.12,cctv,Parking Lot
+192.168.1.13,switch,Server Room
+192.168.1.14,cctv,Rooftop
+10.36.47.17,cctv,Room1
+10.36.47.81,switch,Room2
+10.36.48.151,switch,Room2
+10.36.49.254,switch,Room2
+10.36.50.151,switch,Room2
+10.36.51.254,switch,Room2
+10.36.52.151,switch,Room2
+10.36.53.254,switch,Room2
+10.36.54.151,switch,Room2
+10.36.55.254,switch,Room2
+10.36.56.151,switch,Room2
+10.36.57.254,switch,Room2
+10.36.58.151,switch,Room2
+10.36.59.254,switch,Room2
+
+
+
+
+
+

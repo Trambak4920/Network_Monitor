@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JSPL Network Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Open+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Open Sans', sans-serif; background: #0f0f1a; color: #333; }
+
+        .topbar {
+            background: #1a1a2e;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            border-bottom: 2px solid #c1121f;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+
+        .brand { font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 700; color: white; letter-spacing: 2px; }
+        .brand span { color: #c1121f; }
+
+        .page-badge {
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            border-left: 1px solid rgba(255,255,255,0.15);
+            padding-left: 14px;
+        }
+
+        .topbar-right { display: flex; align-items: center; gap: 14px; font-size: 12px; }
+        .user-info { color: rgba(255,255,255,0.6); }
+        .user-info strong { color: white; }
+
+        .role-pill {
+            padding: 3px 10px;
+            border-radius: 2px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .role-admin { background: #c1121f; color: white; }
+        .role-user { background: #185FA5; color: white; }
+
+        .logout-link {
+            color: rgba(255,255,255,0.4);
+            text-decoration: none;
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: 1px solid rgba(255,255,255,0.15);
+            padding: 5px 12px;
+            border-radius: 2px;
+            transition: all 0.2s;
+        }
+        .logout-link:hover { color: white; border-color: #c1121f; }
+
+        .main { padding: 20px 24px; }
+
+        .flash-msg {
+            background: #1a2e1a;
+            border-left: 3px solid #28a745;
+            color: #5cb85c;
+            padding: 10px 16px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            border-radius: 2px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 3px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+        }
+
+        .stat-total::before { background: #185FA5; }
+        .stat-up::before { background: #28a745; }
+        .stat-down::before { background: #c1121f; }
+        .stat-unknown::before { background: #ffc107; }
+
+        .stat-label {
+            font-size: 10px;
+            color: rgba(255,255,255,0.35);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .stat-number {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-total .stat-number { color: #5b9bd5; }
+        .stat-up .stat-number { color: #5cb85c; }
+        .stat-down .stat-number { color: #e74c3c; }
+        .stat-unknown .stat-number { color: #ffc107; }
+
+        .stat-icon {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 32px;
+            opacity: 0.08;
+        }
+
+        .charts-row {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .chart-card {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 3px;
+            padding: 16px;
+        }
+
+        .chart-title {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.5);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .action-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            background: #1a1a2e;
+            padding: 12px 16px;
+            border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .btn {
+            padding: 7px 14px;
+            border-radius: 2px;
+            font-size: 11px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            border: none;
+            font-family: 'Open Sans', sans-serif;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background: #c1121f; color: white; }
+        .btn-primary:hover { background: #a00e18; color: white; }
+        .btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); }
+        .btn-secondary:hover { background: rgba(255,255,255,0.12); color: white; }
+
+        .search-box { margin-left: auto; display: flex; align-items: center; }
+
+        .search-input {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 2px;
+            padding: 7px 14px;
+            font-size: 12px;
+            color: white;
+            width: 220px;
+            font-family: 'Open Sans', sans-serif;
+            outline: none;
+        }
+        .search-input::placeholder { color: rgba(255,255,255,0.25); }
+        .search-input:focus { border-color: #c1121f; }
+
+        .add-form {
+            background: #1a1a2e;
+            border: 1px solid rgba(193,18,31,0.3);
+            border-radius: 3px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+        }
+
+        .add-form-title {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.4);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+        }
+
+        .add-form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+        .form-input-dark {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 2px;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: white;
+            font-family: 'Open Sans', sans-serif;
+            outline: none;
+        }
+        .form-input-dark:focus { border-color: #c1121f; }
+        .form-input-dark option { background: #1a1a2e; }
+
+        .table-card {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .table-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .table-title {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            color: white;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .table-count { font-size: 11px; color: rgba(255,255,255,0.3); letter-spacing: 1px; }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        th {
+            background: rgba(255,255,255,0.03);
+            padding: 10px 16px;
+            text-align: left;
+            font-size: 10px;
+            color: rgba(255,255,255,0.3);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-weight: 600;
+        }
+
+        td {
+            padding: 11px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 13px;
+            color: rgba(255,255,255,0.7);
+        }
+
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        td strong { color: white; font-weight: 600; }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 2px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .pill-up { background: rgba(40,167,69,0.15); color: #5cb85c; border: 1px solid rgba(40,167,69,0.2); }
+        .pill-down { background: rgba(193,18,31,0.15); color: #e74c3c; border: 1px solid rgba(193,18,31,0.2); }
+        .pill-unknown { background: rgba(255,193,7,0.1); color: #ffc107; border: 1px solid rgba(255,193,7,0.2); }
+
+        .dot { width: 5px; height: 5px; border-radius: 50%; }
+        .dot-up { background: #5cb85c; }
+        .dot-down { background: #e74c3c; animation: blink 1.5s infinite; }
+        .dot-unknown { background: #ffc107; }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+
+        .btn-del {
+            background: rgba(193,18,31,0.1);
+            color: #e74c3c;
+            border: 1px solid rgba(193,18,31,0.2);
+            padding: 4px 10px;
+            border-radius: 2px;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: 'Open Sans', sans-serif;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn-del:hover { background: #c1121f; color: white; }
+
+        .file-input { font-size: 11px; color: rgba(255,255,255,0.4); }
+        .upload-form { display: inline-flex; align-items: center; gap: 8px; }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 16px;
+            padding-bottom: 24px;
+        }
+
+        .page-btn {
+            padding: 7px 14px;
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 2px;
+            text-decoration: none;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .page-btn:hover { background: rgba(255,255,255,0.12); color: white; }
+        .page-btn.active { background: #c1121f; color: white; border-color: #c1121f; }
+        .page-dots { color: rgba(255,255,255,0.3); font-size: 12px; }
+        .page-info { font-size: 11px; color: rgba(255,255,255,0.25); margin-left: 8px; }
+    </style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+    <div class="topbar-left">
+        <div class="brand">JINDAL <span>STEEL</span></div>
+        <div class="page-badge">Network Monitor</div>
+    </div>
+    <div class="topbar-right">
+        <span class="user-info">
+            <strong>{{ session.username }}</strong>
+            <span class="role-pill {% if role == 'admin' %}role-admin{% else %}role-user{% endif %}">{{ role }}</span>
+        </span>
+        <a href="/logout" class="logout-link">Logout</a>
+    </div>
+</div>
+
+<div class="main">
+
+    <!-- Flash -->
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}{% for message in messages %}
+    <div class="flash-msg" id="flash-msg">&#10003; {{ message }}</div>
+    {% endfor %}{% endif %}
+    {% endwith %}
+    <script>
+        setTimeout(function() {
+            var m = document.getElementById('flash-msg');
+            if(m){ m.style.transition='opacity 1s'; m.style.opacity='0'; setTimeout(function(){ m.remove(); },1000); }
+        }, 3000);
+    </script>
+
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+        <div class="stat-card stat-total">
+            <div class="stat-label">Total Devices</div>
+            <div class="stat-number">{{ total }}</div>
+            <div class="stat-icon">&#128225;</div>
+        </div>
+        <div class="stat-card stat-up">
+            <div class="stat-label">Online</div>
+            <div class="stat-number">{{ up_count }}</div>
+            <div class="stat-icon">&#9654;</div>
+        </div>
+        <div class="stat-card stat-down">
+            <div class="stat-label">Offline</div>
+            <div class="stat-number">{{ down_count }}</div>
+            <div class="stat-icon">&#9632;</div>
+        </div>
+        <div class="stat-card stat-unknown">
+            <div class="stat-label">Unknown</div>
+            <div class="stat-number">{{ all_devices|selectattr('current_status','equalto','UNKNOWN')|list|length }}</div>
+            <div class="stat-icon">&#9644;</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+        <div class="chart-card">
+            <div class="chart-title">Status</div>
+            <canvas id="donutChart" height="160"></canvas>
+        </div>
+        <div class="chart-card">
+            <div class="chart-title">Devices by Type</div>
+            <canvas id="barChart" height="80"></canvas>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <a href="/monitor" class="btn btn-primary">&#9654; Run Monitor</a>
+        {% if role == 'admin' %}
+        <a href="/test_ping" class="btn btn-secondary">&#9670; Test Ping</a>
+        <a href="/users" class="btn btn-secondary">&#9824; Users</a>
+        <a href="/email_config" class="btn btn-secondary">&#9993; Email</a>
+        <a href="/edit_admin" class="btn btn-secondary">&#9881; My Profile</a>
+        <form action="/upload_csv" method="post" enctype="multipart/form-data" class="upload-form">
+            <input type="file" name="csv_file" accept=".csv" required class="file-input">
+            <button type="submit" class="btn btn-secondary">&#8679; Upload CSV</button>
+        </form>
+        {% endif %}
+        <div class="search-box">
+            <input type="text" id="searchInput" class="search-input" placeholder="Search IP or location..." onkeyup="filterTable()">
+        </div>
+    </div>
+
+    <!-- Add Device Form -->
+    {% if role == 'admin' %}
+    <div class="add-form">
+        <div class="add-form-title">&#43; Add New Device</div>
+        <form action="/add_device" method="post">
+            <div class="add-form-row">
+                <input type="text" name="ip" placeholder="IP Address" required class="form-input-dark" style="width:180px;">
+                <select name="device_type" required class="form-input-dark">
+                    <option value="">Device Type</option>
+                    <option value="cctv">CCTV</option>
+                    <option value="switch">Switch</option>
+                    <option value="router">Router</option>
+                    <option value="access_point">Access Point</option>
+                </select>
+                <input type="text" name="location" placeholder="Location" required class="form-input-dark" style="width:180px;">
+                <button type="submit" class="btn btn-primary">Add Device</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Device Table -->
+    <div class="table-card">
+        <div class="table-header">
+            <span class="table-title">&#128225; Device Registry</span>
+            <span class="table-count">Showing {{ devices|length }} of {{ total }} Devices</span>
+        </div>
+        <table id="deviceTable">
+            <thead>
+                <tr>
+                    <th>IP Address</th>
+                    <th>Type</th>
+                    <th>Location</th>
+                    <th>Status</th>
+                    <th>Last Checked</th>
+                    {% if role == 'admin' %}<th>Action</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for device in devices %}
+                <tr>
+                    <td><strong>{{ device.ip }}</strong></td>
+                    <td>{{ device.device_type|upper }}</td>
+                    <td>{{ device.location }}</td>
+                    <td>
+                        {% if device.current_status == 'UP' %}
+                            <span class="pill pill-up"><span class="dot dot-up"></span>Online</span>
+                        {% elif device.current_status == 'DOWN' %}
+                            <span class="pill pill-down"><span class="dot dot-down"></span>Offline</span>
+                        {% else %}
+                            <span class="pill pill-unknown"><span class="dot dot-unknown"></span>Unknown</span>
+                        {% endif %}
+                    </td>
+                    <td style="color:rgba(255,255,255,0.3); font-size:12px;">{{ device.last_checked or '—' }}</td>
+                    {% if role == 'admin' %}
+                    <td>
+                        <a href="/delete_device/{{ device.id }}" class="btn-del"
+                           onclick="return confirm('Delete {{ device.ip }}?')">Delete</a>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="/?page={{ page - 1 }}" class="page-btn">&#8592; Prev</a>
+        {% endif %}
+
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+            <span class="page-btn active">{{ p }}</span>
+            {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+            <a href="/?page={{ p }}" class="page-btn">{{ p }}</a>
+            {% elif p == 4 or p == total_pages - 3 %}
+            <span class="page-dots">...</span>
+            {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+        <a href="/?page={{ page + 1 }}" class="page-btn">Next &#8594;</a>
+        {% endif %}
+
+        <span class="page-info">Page {{ page }} of {{ total_pages }} &bull; {{ total }} total</span>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    Chart.defaults.color = 'rgba(255,255,255,0.4)';
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
+
+    new Chart(document.getElementById('donutChart').getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Online', 'Offline', 'Unknown'],
+            datasets: [{
+                data: [
+                    {{ up_count }},
+                    {{ down_count }},
+                    {{ all_devices|selectattr('current_status','equalto','UNKNOWN')|list|length }}
+                ],
+                backgroundColor: ['rgba(40,167,69,0.8)', 'rgba(193,18,31,0.8)', 'rgba(255,193,7,0.8)'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 10, padding: 10 } } },
+            cutout: '70%'
+        }
+    });
+
+    var typeCounts = {};
+    {% for device in all_devices %}
+        var t = "{{ device.device_type }}";
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+    {% endfor %}
+
+    new Chart(document.getElementById('barChart').getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: Object.keys(typeCounts),
+            datasets: [{
+                data: Object.values(typeCounts),
+                backgroundColor: ['rgba(193,18,31,0.7)', 'rgba(24,95,165,0.7)', 'rgba(40,167,69,0.7)', 'rgba(255,193,7,0.7)'],
+                borderRadius: 2,
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    function filterTable() {
+        var input = document.getElementById('searchInput').value.toLowerCase();
+        document.querySelectorAll('#deviceTable tbody tr').forEach(function(row) {
+            row.style.display = row.innerText.toLowerCase().includes(input) ? '' : 'none';
+        });
+    }
+</script>
+
+</body>
+</html>
