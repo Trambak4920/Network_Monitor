@@ -133,7 +133,7 @@
 
         .charts-row {
             display: grid;
-            grid-template-columns: 200px 1fr;
+            grid-template-columns: 220px 1fr 1.4fr 1.1fr;
             gap: 14px;
             margin-bottom: 20px;
         }
@@ -155,6 +155,10 @@
             margin-bottom: 14px;
             padding-bottom: 10px;
             border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .chart-trend {
+            min-height: 240px;
         }
 
         .action-bar {
@@ -191,7 +195,28 @@
         .btn-secondary { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); }
         .btn-secondary:hover { background: rgba(255,255,255,0.12); color: white; }
 
-        .search-box { margin-left: auto; display: flex; align-items: center; }
+        .filters-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+            background: #1a1a2e;
+            padding: 12px 16px;
+            border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .filters-label {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.45);
+            margin-right: 6px;
+        }
+
+        .search-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
         .search-input {
             background: rgba(255,255,255,0.05);
@@ -206,6 +231,20 @@
         }
         .search-input::placeholder { color: rgba(255,255,255,0.25); }
         .search-input:focus { border-color: #c1121f; }
+
+        .filter-select {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 2px;
+            padding: 7px 10px;
+            font-size: 12px;
+            color: white;
+            font-family: 'Open Sans', sans-serif;
+            outline: none;
+            min-width: 120px;
+        }
+        .filter-select:focus { border-color: #c1121f; }
+        .filter-select option { background: #1a1a2e; }
 
         .add-form {
             background: #1a1a2e;
@@ -357,6 +396,12 @@
         .page-btn.active { background: #c1121f; color: white; border-color: #c1121f; }
         .page-dots { color: rgba(255,255,255,0.3); font-size: 12px; }
         .page-info { font-size: 11px; color: rgba(255,255,255,0.25); margin-left: 8px; }
+
+        @media (max-width: 980px) {
+            .search-box { width: 100%; justify-content: flex-start; }
+            .search-input { width: 100%; max-width: 260px; }
+            .filters-label { width: 100%; margin-bottom: 4px; }
+        }
     </style>
 </head>
 <body>
@@ -395,22 +440,22 @@
     <div class="stats-grid">
         <div class="stat-card stat-total">
             <div class="stat-label">Total Devices</div>
-            <div class="stat-number">{{ total }}</div>
+                <div class="stat-number" id="totalCount">{{ total }}</div>
             <div class="stat-icon">&#128225;</div>
         </div>
         <div class="stat-card stat-up">
             <div class="stat-label">Online</div>
-            <div class="stat-number">{{ up_count }}</div>
+                <div class="stat-number" id="upCount">{{ up_count }}</div>
             <div class="stat-icon">&#9654;</div>
         </div>
         <div class="stat-card stat-down">
             <div class="stat-label">Offline</div>
-            <div class="stat-number">{{ down_count }}</div>
+                <div class="stat-number" id="downCount">{{ down_count }}</div>
             <div class="stat-icon">&#9632;</div>
         </div>
         <div class="stat-card stat-unknown">
             <div class="stat-label">Unknown</div>
-            <div class="stat-number">{{ all_devices|selectattr('current_status','equalto','UNKNOWN')|list|length }}</div>
+                <div class="stat-number" id="unknownCount">{{ all_devices|selectattr('current_status','equalto','UNKNOWN')|list|length }}</div>
             <div class="stat-icon">&#9644;</div>
         </div>
     </div>
@@ -424,6 +469,14 @@
         <div class="chart-card">
             <div class="chart-title">Devices by Type</div>
             <canvas id="barChart" height="80"></canvas>
+        </div>
+        <div class="chart-card chart-trend">
+            <div class="chart-title">Status Trend (Recent Checks)</div>
+            <canvas id="trendChart" height="120"></canvas>
+        </div>
+        <div class="chart-card chart-trend">
+            <div class="chart-title">Update Activity</div>
+            <canvas id="updateChart" height="120"></canvas>
         </div>
     </div>
 
@@ -440,9 +493,28 @@
             <button type="submit" class="btn btn-secondary">&#8679; Upload CSV</button>
         </form>
         {% endif %}
-        <div class="search-box">
-            <input type="text" id="searchInput" class="search-input" placeholder="Search IP or location..." onkeyup="filterTable()">
-        </div>
+    </div>
+
+    <!-- Filters Bar -->
+    <div class="filters-bar">
+        <span class="filters-label">Device Filters</span>
+        <form method="get" action="/" class="search-box" id="deviceFilterForm">
+            <select id="typeFilter" name="type" class="filter-select" onchange="applyFilters()">
+                <option value="">All Types</option>
+                {% for t in all_devices|map(attribute='device_type')|unique|list|sort %}
+                <option value="{{ t }}" {% if type_filter == t|lower %}selected{% endif %}>{{ t|upper }}</option>
+                {% endfor %}
+            </select>
+            <select id="statusFilter" name="status" class="filter-select" onchange="applyFilters()">
+                <option value="">All Status</option>
+                <option value="UP" {% if status_filter == 'UP' %}selected{% endif %}>Online</option>
+                <option value="DOWN" {% if status_filter == 'DOWN' %}selected{% endif %}>Offline</option>
+                <option value="UNKNOWN" {% if status_filter == 'UNKNOWN' %}selected{% endif %}>Unknown</option>
+            </select>
+            <input type="text" id="searchInput" name="search" class="search-input" placeholder="Search IP, type or location..." value="{{ search_query or '' }}" oninput="filterTable()">
+            <button type="submit" class="btn btn-secondary">Apply</button>
+            <button type="button" class="btn btn-secondary" onclick="clearFilters()">Reset</button>
+        </form>
     </div>
 
     <!-- Add Device Form -->
@@ -514,21 +586,21 @@
     <!-- Pagination -->
     <div class="pagination">
         {% if page > 1 %}
-        <a href="/?page={{ page - 1 }}" class="page-btn">&#8592; Prev</a>
+        <a href="{{ url_for('index', page=page - 1, search=search_query, type=type_filter, status=status_filter) }}" class="page-btn">&#8592; Prev</a>
         {% endif %}
 
         {% for p in range(1, total_pages + 1) %}
             {% if p == page %}
             <span class="page-btn active">{{ p }}</span>
             {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
-            <a href="/?page={{ p }}" class="page-btn">{{ p }}</a>
+            <a href="{{ url_for('index', page=p, search=search_query, type=type_filter, status=status_filter) }}" class="page-btn">{{ p }}</a>
             {% elif p == 4 or p == total_pages - 3 %}
             <span class="page-dots">...</span>
             {% endif %}
         {% endfor %}
 
         {% if page < total_pages %}
-        <a href="/?page={{ page + 1 }}" class="page-btn">Next &#8594;</a>
+        <a href="{{ url_for('index', page=page + 1, search=search_query, type=type_filter, status=status_filter) }}" class="page-btn">Next &#8594;</a>
         {% endif %}
 
         <span class="page-info">Page {{ page }} of {{ total_pages }} &bull; {{ total }} total</span>
@@ -541,16 +613,12 @@
     Chart.defaults.color = 'rgba(255,255,255,0.4)';
     Chart.defaults.borderColor = 'rgba(255,255,255,0.05)';
 
-    new Chart(document.getElementById('donutChart').getContext('2d'), {
+    var donutChart = new Chart(document.getElementById('donutChart').getContext('2d'), {
         type: 'doughnut',
         data: {
             labels: ['Online', 'Offline', 'Unknown'],
             datasets: [{
-                data: [
-                    {{ up_count }},
-                    {{ down_count }},
-                    {{ all_devices|selectattr('current_status','equalto','UNKNOWN')|list|length }}
-                ],
+                data: [0, 0, 0],
                 backgroundColor: ['rgba(40,167,69,0.8)', 'rgba(193,18,31,0.8)', 'rgba(255,193,7,0.8)'],
                 borderWidth: 0
             }]
@@ -563,12 +631,8 @@
     });
 
     var typeCounts = {};
-    {% for device in all_devices %}
-        var t = "{{ device.device_type }}";
-        typeCounts[t] = (typeCounts[t] || 0) + 1;
-    {% endfor %}
 
-    new Chart(document.getElementById('barChart').getContext('2d'), {
+    var barChart = new Chart(document.getElementById('barChart').getContext('2d'), {
         type: 'bar',
         data: {
             labels: Object.keys(typeCounts),
@@ -589,11 +653,165 @@
         }
     });
 
+    var trendChart = new Chart(document.getElementById('trendChart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Online',
+                    data: [],
+                    borderColor: 'rgba(40,167,69,0.9)',
+                    backgroundColor: 'rgba(40,167,69,0.15)',
+                    tension: 0.3,
+                    borderWidth: 2,
+                    fill: false
+                },
+                {
+                    label: 'Offline',
+                    data: [],
+                    borderColor: 'rgba(193,18,31,0.9)',
+                    backgroundColor: 'rgba(193,18,31,0.15)',
+                    tension: 0.3,
+                    borderWidth: 2,
+                    fill: false
+                },
+                {
+                    label: 'Unknown',
+                    data: [],
+                    borderColor: 'rgba(255,193,7,0.9)',
+                    backgroundColor: 'rgba(255,193,7,0.15)',
+                    tension: 0.3,
+                    borderWidth: 2,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { font: { size: 11 }, boxWidth: 10, padding: 10 }
+                }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    var updateChart = new Chart(document.getElementById('updateChart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Checks',
+                    data: [],
+                    borderColor: 'rgba(24,95,165,0.95)',
+                    backgroundColor: 'rgba(24,95,165,0.2)',
+                    tension: 0.3,
+                    borderWidth: 2,
+                    fill: false
+                },
+                {
+                    label: 'Status Changes',
+                    data: [],
+                    borderColor: 'rgba(193,18,31,0.95)',
+                    backgroundColor: 'rgba(193,18,31,0.2)',
+                    tension: 0.3,
+                    borderWidth: 2,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { font: { size: 11 }, boxWidth: 10, padding: 10 }
+                }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    function refreshDashboardCharts() {
+        fetch('/dashboard_metrics')
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(data) {
+                if (data.error) return;
+
+                document.getElementById('totalCount').textContent = data.counts.total;
+                document.getElementById('upCount').textContent = data.counts.up;
+                document.getElementById('downCount').textContent = data.counts.down;
+                document.getElementById('unknownCount').textContent = data.counts.unknown;
+
+                donutChart.data.datasets[0].data = [data.counts.up, data.counts.down, data.counts.unknown];
+                donutChart.update('none');
+
+                barChart.data.labels = Object.keys(data.type_counts);
+                barChart.data.datasets[0].data = Object.values(data.type_counts);
+                barChart.update('none');
+
+                trendChart.data.labels = data.trend.labels || [];
+                trendChart.data.datasets[0].data = data.trend.up || [];
+                trendChart.data.datasets[1].data = data.trend.down || [];
+                trendChart.data.datasets[2].data = data.trend.unknown || [];
+                trendChart.update('none');
+
+                updateChart.data.labels = data.updates.labels || [];
+                updateChart.data.datasets[0].data = data.updates.checks || [];
+                updateChart.data.datasets[1].data = data.updates.changes || [];
+                updateChart.update('none');
+            })
+            .catch(function(error) {
+                console.error('Unable to refresh dashboard metrics:', error);
+            });
+    }
+
+    refreshDashboardCharts();
+    setInterval(refreshDashboardCharts, 30000);
+
     function filterTable() {
-        var input = document.getElementById('searchInput').value.toLowerCase();
+        var input = document.getElementById('searchInput').value.toLowerCase().trim();
+        var typeFilter = document.getElementById('typeFilter').value;
+        var statusFilter = document.getElementById('statusFilter').value;
+
         document.querySelectorAll('#deviceTable tbody tr').forEach(function(row) {
-            row.style.display = row.innerText.toLowerCase().includes(input) ? '' : 'none';
+            var cells = row.querySelectorAll('td');
+            if (cells.length < 4) return;
+
+            var ip = cells[0].innerText.toLowerCase();
+            var type = cells[1].innerText.trim().toUpperCase();
+            var location = cells[2].innerText.toLowerCase();
+            var status = cells[3].innerText.trim().toUpperCase();
+            var textMatch = !input || ip.includes(input) || type.toLowerCase().includes(input) || location.includes(input);
+            var typeMatch = !typeFilter || type === typeFilter;
+            var statusMatch = !statusFilter || status === statusFilter;
+
+            row.style.display = (textMatch && typeMatch && statusMatch) ? '' : 'none';
         });
+    }
+
+    function applyFilters() {
+        filterTable();
+        document.getElementById('deviceFilterForm').submit();
+    }
+
+    function clearFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('typeFilter').value = '';
+        document.getElementById('statusFilter').value = '';
+        document.getElementById('deviceFilterForm').submit();
     }
 </script>
 

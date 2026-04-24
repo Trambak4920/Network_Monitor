@@ -1,9 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from apscheduler.schedulers.background import BackgroundScheduler
 from models import db, User, Device, Log, Alert,EmailConfig
-import os
 import csv
+from sqlalchemy import func, case
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-this-later'
@@ -32,16 +32,34 @@ def index():
 
     page = request.args.get('page', 1, type=int)
     per_page = 20
+    search_query = request.args.get('search', '').strip()
+    type_filter = request.args.get('type', '').strip().lower()
+    status_filter = request.args.get('status', '').strip().upper()
 
     all_devices = Device.query.all()
     up_count = sum(1 for d in all_devices if d.current_status == 'UP')
     down_count = sum(1 for d in all_devices if d.current_status == 'DOWN')
+    normalized_status = {'ONLINE': 'UP', 'OFFLINE': 'DOWN'}.get(status_filter, status_filter)
+
+    filtered_devices = all_devices
+    if search_query:
+        s = search_query.lower()
+        filtered_devices = [
+            d for d in filtered_devices
+            if s in (d.ip or '').lower()
+            or s in (d.device_type or '').lower()
+            or s in (d.location or '').lower()
+        ]
+    if type_filter:
+        filtered_devices = [d for d in filtered_devices if (d.device_type or '').lower() == type_filter]
+    if normalized_status in {'UP', 'DOWN', 'UNKNOWN'}:
+        filtered_devices = [d for d in filtered_devices if d.current_status == normalized_status]
 
     # Paginate
-    total = len(all_devices)
+    total = len(filtered_devices)
     start = (page - 1) * per_page
     end = start + per_page
-    devices_page = all_devices[start:end]
+    devices_page = filtered_devices[start:end]
     total_pages = (total + per_page - 1) // per_page
 
     return render_template('dashboard.html',
@@ -52,7 +70,95 @@ def index():
                            role=session.get('role'),
                            page=page,
                            total_pages=total_pages,
-                           total=total)
+                           total=total,
+                           search_query=search_query,
+                           type_filter=type_filter,
+                           status_filter=normalized_status)
+
+
+@app.route('/dashboard_metrics')
+def dashboard_metrics():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    all_devices = Device.query.all()
+    total = len(all_devices)
+    up_count = sum(1 for d in all_devices if d.current_status == 'UP')
+    down_count = sum(1 for d in all_devices if d.current_status == 'DOWN')
+    unknown_count = sum(1 for d in all_devices if d.current_status == 'UNKNOWN')
+
+    type_counts = {}
+    for device in all_devices:
+        if device.device_type not in type_counts:
+            type_counts[device.device_type] = 0
+        type_counts[device.device_type] += 1
+
+    trend_rows = (
+        db.session.query(
+            func.strftime('%Y-%m-%d %H:%M', Log.timestamp).label('slot'),
+            func.sum(case((Log.status == 'UP', 1), else_=0)).label('up'),
+            func.sum(case((Log.status == 'DOWN', 1), else_=0)).label('down'),
+            func.sum(case((Log.status == 'UNKNOWN', 1), else_=0)).label('unknown')
+        )
+        .group_by('slot')
+        .order_by(func.max(Log.timestamp).desc())
+        .limit(12)
+        .all()
+    )
+
+    trend_rows = list(reversed(trend_rows))
+    trend = {
+        "labels": [row.slot for row in trend_rows],
+        "up": [int(row.up or 0) for row in trend_rows],
+        "down": [int(row.down or 0) for row in trend_rows],
+        "unknown": [int(row.unknown or 0) for row in trend_rows]
+    }
+
+    update_rows = (
+        db.session.query(
+            func.strftime('%Y-%m-%d %H:%M', Log.timestamp).label('slot'),
+            func.count(Log.id).label('checks')
+        )
+        .group_by('slot')
+        .order_by(func.max(Log.timestamp).desc())
+        .limit(12)
+        .all()
+    )
+
+    alert_rows = (
+        db.session.query(
+            func.strftime('%Y-%m-%d %H:%M', Alert.timestamp).label('slot'),
+            func.count(Alert.id).label('changes')
+        )
+        .group_by('slot')
+        .order_by(func.max(Alert.timestamp).desc())
+        .limit(12)
+        .all()
+    )
+
+    checks_by_slot = {row.slot: int(row.checks or 0) for row in update_rows}
+    changes_by_slot = {row.slot: int(row.changes or 0) for row in alert_rows}
+    update_labels = sorted(set(checks_by_slot.keys()) | set(changes_by_slot.keys()))
+    if len(update_labels) > 12:
+        update_labels = update_labels[-12:]
+
+    updates = {
+        "labels": update_labels,
+        "checks": [checks_by_slot.get(slot, 0) for slot in update_labels],
+        "changes": [changes_by_slot.get(slot, 0) for slot in update_labels]
+    }
+
+    return jsonify({
+        "counts": {
+            "total": total,
+            "up": up_count,
+            "down": down_count,
+            "unknown": unknown_count
+        },
+        "type_counts": type_counts,
+        "trend": trend,
+        "updates": updates
+    })
 
 
 @app.route('/monitor')
