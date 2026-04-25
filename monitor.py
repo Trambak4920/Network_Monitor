@@ -29,6 +29,7 @@ def run_monitoring():
 
         up_count    = 0
         down_count  = 0
+        unknown_count = 0
         alert_count = 0
 
         active_devices = [
@@ -36,18 +37,14 @@ def run_monitoring():
             if not (d.location and d.location.startswith('[INACTIVE]'))
         ]
 
-        # ── Ping cap: max 100 parallel workers ────────────────────────────────
-        # Override via PING_MAX_WORKERS env var if needed, but hard-cap at 100
-        # to avoid exhausting OS threads / sockets on large fleets.
-        max_workers = int(os.getenv("PING_MAX_WORKERS", "100"))
-        max_workers = max(10, min(100, max_workers))   # clamp: 10 ≤ n ≤ 100
+        # ── Ping with 100 parallel workers (exactly as requested) ────────────────
+        max_workers = 100
+        print(f"⚙️  Parallel ping workers: {max_workers}")
 
         # Ping all active devices concurrently
         ping_results = {}
         if active_devices:
-            worker_count = min(max_workers, len(active_devices))
-            print(f"⚙️  Parallel ping workers: {worker_count} (max 100)")
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_device = {
                     executor.submit(ping_device, device.ip): device
                     for device in active_devices
@@ -77,8 +74,10 @@ def run_monitoring():
 
             if new_status == "UP":
                 up_count += 1
-            else:
+            elif new_status == "DOWN":
                 down_count += 1
+            else:
+                unknown_count += 1
 
             # Log status changes to Alert table for dashboard history
             if old_status != new_status:
@@ -88,75 +87,56 @@ def run_monitoring():
                 alert_count += 1
                 print(f"  🚨 ALERT: {message}")
             else:
-                symbol = "🟢" if new_status == "UP" else "🔴"
+                symbol = "🟢" if new_status == "UP" else ("🔴" if new_status == "DOWN" else "❓")
                 if response_time:
                     print(f"  {symbol} {device.ip} → {new_status} ({response_time}ms) (no change)")
                 else:
                     print(f"  {symbol} {device.ip} → {new_status} (no change)")
 
-            # ── Determine current problem state (only DOWN) ──────────────────────
-            # We only care about DOWN status now, ignoring SLOW
-            if new_status == "DOWN":
-                current_issue = "DOWN"
-            else:
-                current_issue = None
-
             # Get or create the cycle row for this device
             cycle_row = cycle_rows.get(device.id)
             if cycle_row is None:
-                cycle_row = DeviceAlertCycle(device_id=device.id, issue_state=None)
+                cycle_row = DeviceAlertCycle(device_id=device.id, last_status=None, cycle_count=0)
                 db.session.add(cycle_row)
                 cycle_rows[device.id] = cycle_row
 
-            previous_issue = cycle_row.issue_state
-
-            # ── Cold-start suppression ─────────────────────────────────────────
-            # TRUE cold start = device never pinged before (both conditions must hold):
-            #   1. old_status == UNKNOWN  → no prior successful ping
-            #   2. previous_issue is None → no alert cycle recorded ever
-            #
-            # Mid-life UNKNOWN (ping blip on a known device):
-            #   old_status == UNKNOWN but previous_issue is set → real event → email
-            is_cold_start = (old_status == "UNKNOWN" and previous_issue is None)
-
-            if is_cold_start:
-                print(f"  ℹ️  {device.ip} → cold start ({new_status}), skipping alert email")
-                cycle_row.issue_state = current_issue
+            # ── Skip first cycle (cycle_count = 0) ──────────────────────────────
+            # On first cycle, just record status and skip email
+            if cycle_row.cycle_count == 0:
+                print(f"  ℹ️  {device.ip} → first cycle, recording status ({new_status}), skipping email")
+                cycle_row.last_status = new_status
+                cycle_row.cycle_count += 1
                 continue
 
-            # ── Simple UP/DOWN alert logic ─────────────────────────────────────
-            # Only send email when transitioning between UP and DOWN states
-            if current_issue:  # Device is DOWN
-                if previous_issue != current_issue:
-                    # Device just went DOWN — queue one email
-                    if email_config and recipient_emails:
-                        print(f"  📬 Queuing DOWN alert for {device.ip}...")
-                        pending_emails.append({
-                            "device_ip":        device.ip,
-                            "old_status":       old_status,
-                            "new_status":       "DOWN",
-                            "recipient_emails": recipient_emails,
-                        })
-                    else:
-                        print(f"  ⚠️  No email config or no recipients!")
+            # ── Email logic: send ONLY on status transitions from cycle 2 onwards ─
+            # Check if status actually changed from last email
+            last_status = cycle_row.last_status
+            
+            if old_status != new_status and last_status != new_status:
+                # Status changed AND we haven't already sent email for this new status
+                # Transitions: UP→DOWN, DOWN→UP, UP→UNKNOWN, DOWN→UNKNOWN, UNKNOWN→UP, UNKNOWN→DOWN, UNKNOWN→UNKNOWN is OK too
+                
+                if email_config and recipient_emails:
+                    print(f"  📬 Queuing email alert for {device.ip}: {last_status} → {new_status}...")
+                    pending_emails.append({
+                        "device_ip":        device.ip,
+                        "old_status":       old_status,
+                        "new_status":       new_status,
+                        "recipient_emails": recipient_emails,
+                    })
+                    cycle_row.last_status = new_status  # Update after queueing email
                 else:
-                    print(f"  🔕 {device.ip} → still DOWN, suppressing repeat alert")
-                cycle_row.issue_state = current_issue
+                    print(f"  ⚠️  No email config or no recipients!")
+            else:
+                # No email: either status didn't change OR we already sent email for this status
+                if old_status == new_status:
+                    symbol = "🔕"
+                    print(f"  {symbol} {device.ip} → still {new_status}, suppressing repeat email")
+                else:
+                    symbol = "✓"
+                    print(f"  {symbol} {device.ip} → {new_status}, no email (already reported)")
 
-            else:  # Device is UP
-                if previous_issue:
-                    # Device recovered to UP — queue one recovery email
-                    if email_config and recipient_emails:
-                        print(f"  📬 Queuing recovery alert for {device.ip} (was DOWN)...")
-                        pending_emails.append({
-                            "device_ip":        device.ip,
-                            "old_status":       "DOWN",
-                            "new_status":       "UP",
-                            "recipient_emails": recipient_emails,
-                        })
-                    else:
-                        print(f"  ⚠️  No email config or no recipients!")
-                cycle_row.issue_state = None
+            cycle_row.cycle_count += 1
 
         db.session.commit()
 
@@ -189,7 +169,7 @@ def run_monitoring():
             )
 
         print(f"\n✅ Monitoring complete!")
-        print(f"   🟢 UP: {up_count} | 🔴 DOWN: {down_count} | 🚨 Alerts: {alert_count}")
+        print(f"   🟢 UP: {up_count} | 🔴 DOWN: {down_count} | ❓ UNKNOWN: {unknown_count} | 🚨 Alerts: {alert_count}")
 
 
 if __name__ == "__main__":
