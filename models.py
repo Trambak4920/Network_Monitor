@@ -24,6 +24,10 @@ class Log(db.Model):
     device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
     status = db.Column(db.String(10), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (
+        db.Index('ix_log_device_timestamp', 'device_id', 'timestamp'),
+        db.Index('ix_log_timestamp', 'timestamp'),
+    )
 
 class Alert(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -31,9 +35,19 @@ class Alert(db.Model):
     message = db.Column(db.String(200), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
+    __table_args__ = (
+        db.Index('ix_alert_device_timestamp', 'device_id', 'timestamp'),
+        db.Index('ix_alert_timestamp', 'timestamp'),
+    )
 
 class EmailConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     sender_email = db.Column(db.String(120), nullable=False)
     sender_password = db.Column(db.String(120), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
+
+
+class DeviceAlertCycle(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False, unique=True)
+    issue_state = db.Column(db.String(10), nullable=True)  # DOWN, SLOW, or None

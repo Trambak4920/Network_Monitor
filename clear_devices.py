@@ -1,9 +1,17 @@
-# forcefully up to check email
-from app import app
-from models import db, Device
+# clear_devices.py - Delete ALL devices from database
+from app import app, db
+from models import Device  # Your Device model
 
-with app.app_context():
-    device = Device.query.filter_by(ip='10.36.59.254').first()
-    device.current_status = 'UP'
-    db.session.commit()
-    print("Done! Set to UP")
+def clear_all_devices():
+    with app.app_context():
+        # Delete ALL devices
+        device_count = Device.query.count()
+        if device_count > 0:
+            Device.query.delete()
+            db.session.commit()
+            print(f"🗑️  Cleared {device_count} devices from database")
+        else:
+            print("ℹ️  No devices to clear")
+
+if __name__ == "__main__":
+    clear_all_devices()

@@ -1,22 +1,26 @@
 import subprocess
 import platform
 import re
+import os
 
 def ping_device(ip):
     system = platform.system()
+    ping_count = os.getenv("PING_COUNT", "1")
+    ping_timeout_ms = os.getenv("PING_TIMEOUT_MS", "1000")
 
     # Windows uses -n, Linux uses -c
     if system == "Windows":
-        command = ["ping", "-n", "2", "-w", "100", ip]
+        command = ["ping", "-n", ping_count, "-w", ping_timeout_ms, ip]
     else:
-        command = ["ping", "-c", "2", "-W", "1", ip]
+        timeout_seconds = str(max(1, int(int(ping_timeout_ms) / 1000)))
+        command = ["ping", "-c", ping_count, "-W", timeout_seconds, ip]
 
     try:
         result = subprocess.run(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-
+            timeout=max(2, int(ping_count) * 2)
         )
 
         output = result.stdout.decode('utf-8', errors='ignore')
