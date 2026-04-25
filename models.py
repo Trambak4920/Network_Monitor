@@ -50,4 +50,5 @@ class EmailConfig(db.Model):
 class DeviceAlertCycle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False, unique=True)
-    issue_state = db.Column(db.String(10), nullable=True)  # DOWN, SLOW, or None
+    last_status = db.Column(db.String(10), nullable=True)  # Track last status sent in email
+    cycle_count = db.Column(db.Integer, default=0)  # Track monitoring cycles to skip first cycle
