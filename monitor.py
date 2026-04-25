@@ -30,7 +30,6 @@ def run_monitoring():
         up_count    = 0
         down_count  = 0
         alert_count = 0
-        slow_count  = 0
 
         active_devices = [
             d for d in devices
@@ -81,10 +80,6 @@ def run_monitoring():
             else:
                 down_count += 1
 
-            if response_time is not None and response_time > 100:
-                slow_count += 1
-                print(f"  ⚠️  {device.ip} → UP but SLOW ({response_time}ms)")
-
             # Log status changes to Alert table for dashboard history
             if old_status != new_status:
                 message = f"⚠️  {device.ip} changed from {old_status} → {new_status}"
@@ -99,11 +94,10 @@ def run_monitoring():
                 else:
                     print(f"  {symbol} {device.ip} → {new_status} (no change)")
 
-            # ── Determine current problem state ────────────────────────────────
+            # ── Determine current problem state (only DOWN) ──────────────────────
+            # We only care about DOWN status now, ignoring SLOW
             if new_status == "DOWN":
                 current_issue = "DOWN"
-            elif new_status == "UP" and response_time is not None and response_time > 100:
-                current_issue = "SLOW"
             else:
                 current_issue = None
 
@@ -130,32 +124,33 @@ def run_monitoring():
                 cycle_row.issue_state = current_issue
                 continue
 
-            # ── Normal alert logic ─────────────────────────────────────────────
-            if current_issue:
+            # ── Simple UP/DOWN alert logic ─────────────────────────────────────
+            # Only send email when transitioning between UP and DOWN states
+            if current_issue:  # Device is DOWN
                 if previous_issue != current_issue:
-                    # New problem state — queue one email
+                    # Device just went DOWN — queue one email
                     if email_config and recipient_emails:
-                        print(f"  📬 Queuing {current_issue} alert for {device.ip}...")
+                        print(f"  📬 Queuing DOWN alert for {device.ip}...")
                         pending_emails.append({
                             "device_ip":        device.ip,
                             "old_status":       old_status,
-                            "new_status":       current_issue,
+                            "new_status":       "DOWN",
                             "recipient_emails": recipient_emails,
                         })
                     else:
                         print(f"  ⚠️  No email config or no recipients!")
                 else:
-                    print(f"  🔕 {device.ip} → still {current_issue}, suppressing repeat alert")
+                    print(f"  🔕 {device.ip} → still DOWN, suppressing repeat alert")
                 cycle_row.issue_state = current_issue
 
-            else:
+            else:  # Device is UP
                 if previous_issue:
-                    # Device recovered — queue one recovery email
+                    # Device recovered to UP — queue one recovery email
                     if email_config and recipient_emails:
-                        print(f"  📬 Queuing recovery alert for {device.ip} (was {previous_issue})...")
+                        print(f"  📬 Queuing recovery alert for {device.ip} (was DOWN)...")
                         pending_emails.append({
                             "device_ip":        device.ip,
-                            "old_status":       previous_issue,
+                            "old_status":       "DOWN",
                             "new_status":       "UP",
                             "recipient_emails": recipient_emails,
                         })
@@ -194,7 +189,7 @@ def run_monitoring():
             )
 
         print(f"\n✅ Monitoring complete!")
-        print(f"   🟢 UP: {up_count} | 🔴 DOWN: {down_count} | 🚨 Alerts: {alert_count} | ⚠️  Slow: {slow_count}")
+        print(f"   🟢 UP: {up_count} | 🔴 DOWN: {down_count} | 🚨 Alerts: {alert_count}")
 
 
 if __name__ == "__main__":
