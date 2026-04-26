@@ -8,10 +8,6 @@ import os
 import threading
 import logging
 
-# ── Logging setup ──────────────────────────────────────────────────────────────
-# FIX #8: Replaced all print() calls with proper logging module.
-# Logs now include timestamps and severity levels.
-# Output goes to both console and a file for persistence.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -23,27 +19,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Thread-safe run counter ────────────────────────────────────────────────────
-# FIX #3: MONITOR_RUN_COUNT is now protected by a threading.Lock.
-# Previously, simultaneous calls could corrupt the counter (race condition).
-_run_count_lock = threading.Lock()
 MONITOR_RUN_COUNT = 0
 
-# ── Overlap prevention lock ────────────────────────────────────────────────────
-# FIX #4: Prevents two monitor runs executing at the same time.
-# If scheduler fires while a manual run is active, the second call exits safely.
 _monitor_lock = threading.Lock()
 
 
 def utcnow():
-    # FIX #1: Replaces deprecated datetime.utcnow() throughout this file.
-    # Returns timezone-aware UTC datetime (required in Python 3.12+).
     return datetime.now(timezone.utc)
 
 
 def run_monitoring():
-    # ── Overlap guard ──────────────────────────────────────────────────────────
-    # FIX #4: Non-blocking acquire — if already locked, skip this trigger.
     if not _monitor_lock.acquire(blocking=False):
         logger.warning("⚠️  Monitor already running — skipping this trigger.")
         return
@@ -55,8 +40,6 @@ def run_monitoring():
 
 
 def _run_this_cycle():
-    # ── Thread-safe counter increment ─────────────────────────────────────────
-    # FIX #3: Lock ensures only one thread increments at a time.
     global MONITOR_RUN_COUNT
     with _run_count_lock:
         MONITOR_RUN_COUNT += 1
@@ -82,14 +65,8 @@ def _run_this_cycle():
         unknown_count = 0
         alert_count   = 0
 
-        # ── FIX #2: Proper is_active field instead of location hack ───────────
-        # Previously checked: d.location.startswith('[INACTIVE]')
-        # Now uses the proper boolean column added to the Device model.
-        # If your Device model still uses the old hack, replace the line below
-        # with: if not (d.location and d.location.startswith('[INACTIVE]'))
         active_devices = [d for d in devices if getattr(d, 'is_active', True)]
 
-        # ── Parallel pinging ───────────────────────────────────────────────────
         max_workers = min(100, len(active_devices))  # don't spin up unused threads
         logger.info(f"⚙️  Parallel ping workers: {max_workers}")
 
@@ -140,14 +117,11 @@ def _run_this_cycle():
                 logger.warning(f"🚨 ALERT: {message}")
             else:
                 symbol = "🟢" if new_status == "UP" else ("🔴" if new_status == "DOWN" else "❓")
-                # FIX #6: was 'if response_time' — 0ms would be treated as False.
-                # Now uses 'is not None' which correctly handles 0ms responses.
                 if response_time is not None:
                     logger.info(f"  {symbol} {device.ip} → {new_status} ({response_time}ms) (no change)")
                 else:
                     logger.info(f"  {symbol} {device.ip} → {new_status} (no change)")
 
-            # ── Get or create cycle row ────────────────────────────────────────
             cycle_row = cycle_rows.get(device.id)
             if cycle_row is None:
                 cycle_row = DeviceAlertCycle(
@@ -158,19 +132,12 @@ def _run_this_cycle():
                 db.session.add(cycle_row)
                 cycle_rows[device.id] = cycle_row
 
-            # ── Skip first cycle ───────────────────────────────────────────────
             if cycle_row.cycle_count == 0:
                 logger.info(f"  ℹ️  {device.ip} → first cycle, recording status ({new_status}), skipping email")
                 cycle_row.last_status = new_status
                 cycle_row.cycle_count += 1
                 continue
 
-            # ── FIX #5: Simplified, clearer email trigger logic ────────────────
-            # Old logic: 'if old_status != new_status and last_status != new_status'
-            # was fragile and hard to reason about across multiple cycles.
-            #
-            # New logic: send email if and only if the new_status differs from
-            # the last status we sent an email for. Simple and unambiguous.
             if new_status != cycle_row.last_status:
                 if email_config and recipient_emails:
                     logger.info(f"  📬 Queuing email: {device.ip} {cycle_row.last_status} → {new_status}")
@@ -190,7 +157,6 @@ def _run_this_cycle():
 
         db.session.commit()
 
-        # ── Send queued emails over one SMTP connection ────────────────────────
         if pending_emails and email_config:
             send_alert_emails(
                 sender_email    = email_config.sender_email,
@@ -198,23 +164,17 @@ def _run_this_cycle():
                 pending_emails  = pending_emails,
             )
 
-        # ── Periodic DB cleanup ────────────────────────────────────────────────
         cleanup_interval_runs = max(1, int(os.getenv("DB_CLEANUP_INTERVAL_RUNS", "12")))
         if current_run % cleanup_interval_runs == 0:
             log_retention_days   = max(1, int(os.getenv("LOG_RETENTION_DAYS", "14")))
             alert_retention_days = max(1, int(os.getenv("ALERT_RETENTION_DAYS", "30")))
 
-            # FIX #1: utcnow() used here too (was datetime.utcnow())
             log_cutoff   = utcnow() - timedelta(days=log_retention_days)
             alert_cutoff = utcnow() - timedelta(days=alert_retention_days)
 
             deleted_logs   = Log.query.filter(Log.timestamp < log_cutoff).delete(synchronize_session=False)
             deleted_alerts = Alert.query.filter(Alert.timestamp < alert_cutoff).delete(synchronize_session=False)
 
-            # FIX #7: Replaced the slow NOT IN subquery for orphan cleanup.
-            # cascade='all, delete-orphan' on the Device→DeviceAlertCycle
-            # relationship in models.py handles this automatically.
-            # The manual query below is kept as a safety net but is now rare.
             deleted_orphan_cycles = DeviceAlertCycle.query.filter(
                 ~DeviceAlertCycle.device_id.in_(
                     db.session.query(Device.id)
